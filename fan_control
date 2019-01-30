@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import subprocess
+import re
+
+FAN_MIN = 1200
+FAN_MID = 2500
+FAN_MAX = 6500
+TEMP_MIN = 40
+TEMP_MID = 65
+TEMP_MAX = 80
+APPLE_SMC = '/sys/devices/platform/applesmc.768/'
+FAN_SPEED_FILE = APPLE_SMC + 'fan1_output'
+FAN_MANUAL_FILE = APPLE_SMC + 'fan1_manual'
+
+def set_fan_speed(speed):
+    with open(FAN_SPEED_FILE, 'w') as f:
+        f.write(str(speed))
+
+def set_fan_manual():
+    """ Tells the system to let us manually control the fan speed. """
+    with open(FAN_MANUAL_FILE, 'w') as f:
+        f.write('1')
+
+def get_cpu_temps():
+    cmd = subprocess.run(('sensors',), stdout=subprocess.PIPE)
+    sensors = cmd.stdout.decode('utf-8')
+    temps = parse_temps(sensors)
+    return temps
+
+def compute_fan_speed(temp):
+    if temp < TEMP_MIN:
+        return FAN_MIN
+    if temp < TEMP_MID:
+        return linterpolate(temp, TEMP_MIN, TEMP_MID, FAN_MIN, FAN_MID)
+    if temp < TEMP_MAX:
+        return linterpolate(temp, TEMP_MID, TEMP_MAX, FAN_MID, FAN_MAX)
+    return FAN_MAX
+
+def linterpolate(v, a, b, x, y):
+    """ Interpolate v in a to b as a value in x to y. """
+    return x * ((v - a) / (b - a)) + y
+
+def parse_temps(sensors_summaries):
+    temps = []
+    for sensor in sensors_summaries.split('\n'):
+        temp = parse_temp(sensor)
+        if temp:
+            temps.append(parse_temp(sensor))
+    return temps
+
+def parse_temp(sensor_summary):
+    match = re.match('Core \d*:\s*([-+]?\d*\.\d+|\d+)°C', sensor_summary)
+    if match:
+        temp_str = match.group(1)
+        return float(temp_str)
+    return None
+
+temp = max(get_cpu_temps())
+speed = int(compute_fan_speed(temp))
+set_fan_manual()
+set_fan_speed(speed)
